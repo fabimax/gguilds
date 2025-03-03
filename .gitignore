@@ -161,3 +161,61 @@ temp/
 
 # Misc
 Thumbs.db
+
+
+
+
+
+
+
+
+
+
+
+
+# Vite specific
+packages/**/dist/
+packages/**/.env*
+!packages/**/.env.example
+
+# Local development certificates
+*.pem
+*.crt
+*.key
+
+# Testing
+coverage/
+.nyc_output/
+**/playwright-report/
+**/test-results/
+
+# Editor directories and files (additional)
+*.code-workspace
+.history/
+
+# Package locks (if you want to use only one package manager)
+# Uncomment the ones you don't want to track
+# yarn.lock
+# package-lock.json
+# pnpm-lock.yaml
+
+# Local Netlify folder
+.netlify/
+
+# Storybook
+**/storybook-static/
+
+# PWA assets
+**/dev-dist/
+**/assets-manifest.json
+
+# Optional npm cache directory additions
+.npm-debug.log*
+
+# Logs specific to workspaces and monorepos 
+lerna-debug.log*
+npm-debug.log*
+
+# Supabase local dev
+**/supabase/.branches/
+**/supabase/.temp/
