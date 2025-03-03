@@ -21,7 +21,8 @@ exports.signup = async (req, res) => {
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      user_metadata: { name }
+      user_metadata: { name },
+      email_confirm: true //!!comment this out to prevent auto email confirmation
     });
     
     if (error) {
