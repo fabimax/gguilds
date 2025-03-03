@@ -3,7 +3,7 @@
  * Shows detailed information about a specific guild, members, badges
  * Provides functionality to join, leave, invite members, and manage the guild
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api } from '@/stores/authStore';
@@ -24,6 +24,7 @@ const GuildDetailPage = () => {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showRoleModal, setShowRoleModal] = useState(false);
+  const [inviteType, setInviteType] = useState('open');
   
   // Add state for existing invitations
   const [invitations, setInvitations] = useState([]);
@@ -563,9 +564,10 @@ const GuildDetailPage = () => {
   
   // Invite Modal with updated tabs order and invitation management
   const InviteModal = () => {
-    const [inviteType, setInviteType] = useState('open');
-    const [socialProvider, setSocialProvider] = useState('twitter');
-    const [socialHandle, setSocialHandle] = useState('');
+    // We need these modal-specific state variables that don't affect parent re-renders
+    const [modalEmail, setModalEmail] = useState(inviteEmail);
+    const [modalSocialHandle, setModalSocialHandle] = useState(newSocialHandle);
+    const [modalSocialProvider, setModalSocialProvider] = useState(newSocialProvider);
     
     // Get filtered invitations based on current tab
     const filteredInvitations = invitations.filter(invitation => {
@@ -597,9 +599,10 @@ const GuildDetailPage = () => {
         
         let requestData = {};
         
-        if (inviteType === 'email' && inviteEmail) {
-          requestData.email = inviteEmail;
-        } else if (inviteType === 'social' && socialHandle) {
+        if (inviteType === 'email' && modalEmail) {
+          requestData.email = modalEmail;
+          setInviteEmail(modalEmail); // Sync back to parent
+        } else if (inviteType === 'social' && modalSocialHandle) {
           // This is now handled by the handleAddInvitedHandle function
           return;
         }
@@ -621,6 +624,33 @@ const GuildDetailPage = () => {
         toast.error(error.response?.data?.message || 'Failed to create invitation');
       } finally {
         setInviteLoading(false);
+      }
+    };
+    
+    // Handle adding a social handle
+    const handleModalAddHandle = async () => {
+      // Update parent state first
+      setNewSocialProvider(modalSocialProvider);
+      setNewSocialHandle(modalSocialHandle);
+      
+      try {
+        setAddingHandle(true);
+        
+        const response = await api.post(`/guilds/${guildId}/invited-handles`, {
+          socialProvider: modalSocialProvider,
+          socialHandle: modalSocialHandle
+        });
+        
+        toast.success(response.data.message);
+        setModalSocialHandle('');
+        
+        // Refresh invited handles list
+        fetchInvitedHandles();
+      } catch (error) {
+        console.error('Failed to add invited handle:', error);
+        toast.error(error.response?.data?.message || 'Failed to add invited handle');
+      } finally {
+        setAddingHandle(false);
       }
     };
     
@@ -706,8 +736,8 @@ const GuildDetailPage = () => {
                 id="inviteEmail"
                 type="email"
                 className="input"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
+                value={modalEmail}
+                onChange={(e) => setModalEmail(e.target.value)}
                 placeholder="member@example.com"
                 required
               />
@@ -720,7 +750,7 @@ const GuildDetailPage = () => {
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={inviteLoading || !inviteEmail.trim()}
+                disabled={inviteLoading || !modalEmail.trim()}
               >
                 {inviteLoading ? 'Creating...' : 'Create Email Invitation'}
               </button>
@@ -739,8 +769,8 @@ const GuildDetailPage = () => {
               <div className="flex flex-col sm:flex-row gap-3">
                 <select
                   className="input sm:w-1/3"
-                  value={newSocialProvider}
-                  onChange={(e) => setNewSocialProvider(e.target.value)}
+                  value={modalSocialProvider}
+                  onChange={(e) => setModalSocialProvider(e.target.value)}
                 >
                   <option value="twitter">Twitter/X</option>
                   {/* Add other social providers here as they become supported */}
@@ -753,16 +783,16 @@ const GuildDetailPage = () => {
                   <input
                     type="text"
                     className="input rounded-l-none flex-1"
-                    value={newSocialHandle}
-                    onChange={(e) => setNewSocialHandle(e.target.value.replace('@', ''))}
+                    value={modalSocialHandle}
+                    onChange={(e) => setModalSocialHandle(e.target.value.replace('@', ''))}
                     placeholder="username"
                   />
                 </div>
                 
                 <button
-                  onClick={handleAddInvitedHandle}
+                  onClick={handleModalAddHandle}
                   className="btn btn-primary"
-                  disabled={addingHandle || !newSocialHandle.trim()}
+                  disabled={addingHandle || !modalSocialHandle.trim()}
                 >
                   {addingHandle ? 'Adding...' : 'Add Handle'}
                 </button>

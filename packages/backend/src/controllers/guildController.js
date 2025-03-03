@@ -296,14 +296,6 @@ exports.createInvitation = async (req, res) => {
     const userId = req.user.id;
     const { email, socialProvider, socialHandle } = req.body;
     
-    // Validate that at least one identifier is provided
-    if (!email && (!socialProvider || !socialHandle)) {
-      return res.status(400).json({ 
-        error: true, 
-        message: 'Either email or social media details must be provided' 
-      });
-    }
-    
     // Check if user is an admin of the guild
     const { data: membership, error: membershipError } = await supabaseAdmin
       .from('guild_members')
