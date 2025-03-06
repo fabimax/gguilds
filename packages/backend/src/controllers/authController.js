@@ -119,8 +119,11 @@ exports.login = async (req, res) => {
  */
 exports.getTwitterAuthUrl = async (req, res) => {
   try {
-    // Get the redirect URL from query params or use a default
-    const redirectTo = req.query.redirectTo || process.env.FRONTEND_URL || 'http://localhost:3000';
+    // Get base URL for redirect
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const redirectTo = `${baseUrl}/auth/callback`;
+    
+    console.log('Generating Twitter auth with redirect to:', redirectTo);
     
     // Generate Twitter OAuth URL via Supabase
     const { data, error } = await supabaseAdmin.auth.signInWithOAuth({
@@ -228,6 +231,223 @@ exports.logout = async (req, res) => {
     res.status(500).json({ 
       error: true, 
       message: 'Error logging out' 
+    });
+  }
+};
+
+
+
+// Import the utility function
+const { ensureUserProfile } = require('../utils/profileHelpers');
+
+/**
+ * Handle OAuth callback
+ */
+exports.handleAuthCallback = async (req, res) => {
+  try {
+    const { params } = req.body;
+    
+    // Exchange OAuth token using Supabase
+    const { data, error } = await supabaseAdmin.auth.exchangeCodeForSession(params.code);
+    
+    if (error) {
+      return res.status(400).json({ 
+        error: true, 
+        message: error.message 
+      });
+    }
+    
+    // Get user from Supabase
+    const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(data.user.id);
+    
+    if (userError) {
+      return res.status(400).json({ 
+        error: true, 
+        message: 'Failed to retrieve user data' 
+      });
+    }
+    
+    // Create or get existing profile
+    try {
+      await ensureUserProfile(userData.user);
+    } catch (profileError) {
+      console.error('Failed to create user profile:', profileError);
+      // Continue with auth flow even if profile creation fails
+      // We'll at least let them log in
+    }
+    
+    res.status(200).json({
+      user: {
+        id: data.user.id,
+        email: data.user.email
+      },
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at
+      }
+    });
+  } catch (err) {
+    console.error('Auth callback error:', err);
+    res.status(500).json({ 
+      error: true, 
+      message: 'Error processing authentication callback' 
+    });
+  }
+};
+
+
+/**
+ * Validate and create session based on OAuth response
+ */
+exports.validateSession = async (req, res) => {
+  try {
+    const { queryParams, hashParams } = req.body;
+    
+    // Reconstruct the full URL that Supabase expects
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const fullUrl = `${baseUrl}/auth/callback${queryParams}${hashParams}`;
+    
+    console.log('Processing auth callback with URL:', fullUrl);
+    
+    // Use the more reliable setSession method which handles both code exchanges and hash params
+    const { data, error } = await supabaseAdmin.auth.getSessionFromUrl({
+      url: fullUrl,
+      // This should match the callback URL you configured in Supabase
+      options: {
+        redirectTo: `${baseUrl}/auth/callback`
+      }
+    });
+    
+    if (error) {
+      console.error('Session validation error:', error);
+      return res.status(400).json({ 
+        error: true, 
+        message: error.message 
+      });
+    }
+    
+    // Double-check we got a session
+    if (!data || !data.session) {
+      return res.status(400).json({ 
+        error: true, 
+        message: 'No session data returned from authentication provider' 
+      });
+    }
+    
+    // Make sure the user has a profile
+    if (data.user) {
+      try {
+        // Get the complete user data with identities
+        const { data: userData } = await supabaseAdmin.auth.admin.getUserById(data.user.id);
+        
+        // Check if profile exists
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        
+        // Create profile if it doesn't exist
+        if (!profile && userData.user) {
+          // Extract name from identities
+          let name = '';
+          let email = userData.user.email || '';
+          let avatarUrl = '';
+          
+          if (userData.user.identities && userData.user.identities.length > 0) {
+            const identity = userData.user.identities.find(id => id.provider === 'twitter');
+            if (identity && identity.identity_data) {
+              name = identity.identity_data.full_name || identity.identity_data.name || '';
+              if (identity.identity_data.avatar_url) {
+                avatarUrl = identity.identity_data.avatar_url;
+              }
+            }
+          }
+          
+          console.log('Creating profile for user:', userData.user.id, name);
+          
+          // Create profile
+          await supabaseAdmin
+            .from('profiles')
+            .insert({
+              id: userData.user.id,
+              email: email,
+              name: name,
+              bio: '',
+              avatar_url: avatarUrl
+            });
+        }
+      } catch (profileError) {
+        console.error('Profile creation error:', profileError);
+        // Continue with auth flow even if profile fails
+      }
+    }
+    
+    res.status(200).json({
+      user: data.user,
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at
+      }
+    });
+  } catch (err) {
+    console.error('Session validation error:', err);
+    res.status(500).json({ 
+      error: true, 
+      message: 'Error validating session' 
+    });
+  }
+};
+
+
+/**
+ * Verify tokens and return user data
+ */
+exports.verifyTokens = async (req, res) => {
+  try {
+    const { access_token } = req.body;
+    
+    if (!access_token) {
+      return res.status(400).json({
+        error: true,
+        message: 'Access token is required'
+      });
+    }
+    
+    // Get user info using the token
+    const { data, error } = await supabaseAdmin.auth.getUser(access_token);
+    
+    if (error) {
+      return res.status(401).json({
+        error: true,
+        message: 'Invalid token'
+      });
+    }
+    
+    // Ensure the user has a profile
+    await ensureUserProfile(data.user);
+    
+    // Get the profile data
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', data.user.id)
+      .single();
+    
+    res.status(200).json({
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        name: profile?.name || ''
+      }
+    });
+  } catch (err) {
+    console.error('Token verification error:', err);
+    res.status(500).json({
+      error: true,
+      message: 'Error verifying token'
     });
   }
 };

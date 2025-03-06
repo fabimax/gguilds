@@ -1,11 +1,9 @@
-/**
- * Auth callback handler for social login redirects
- */
+// packages/frontend/src/components/auth/AuthCallback.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import useAuthStore from '@/stores/authStore';
-import { createClient } from '@supabase/supabase-js';
+import { api } from '@/stores/authStore';
 
 const AuthCallback = () => {
   const [error, setError] = useState(null);
@@ -13,56 +11,50 @@ const AuthCallback = () => {
   const { setAuthTokens, setUser } = useAuthStore();
   
   useEffect(() => {
-    // Create a Supabase client for handling the auth callback
-    // Note: These should be your public Supabase anon keys, not service keys
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    
-    if (!supabaseUrl || !supabaseAnonKey) {
-      setError('Missing Supabase configuration. Please contact support.');
-      return;
-    }
-    
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    
-    // Handle the auth callback
     const handleAuthCallback = async () => {
       try {
-        // Get the auth callback from Supabase
-        const { data, error } = await supabase.auth.getSession();
+        // Extract authentication data from URL
+        // Supabase usually includes an access_token in the URL fragment (hash)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const expiresIn = hashParams.get('expires_in');
         
-        if (error) throw error;
+        if (!accessToken) {
+          console.error('No access token found in callback URL');
+          setError('Authentication failed. No access token received.');
+          return;
+        }
         
-        if (data?.session) {
-          // Set the auth tokens
-          setAuthTokens(
-            data.session.access_token,
-            data.session.refresh_token,
-            data.session.expires_at
-          );
-          
-          // Set the user if available
-          if (data.session.user) {
-            setUser(data.session.user);
-          }
-          
+        // Calculate token expiry
+        const expiresAt = expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn) : null;
+        
+        // Verify tokens with our backend
+        const response = await api.post('/auth/verify-tokens', { 
+          access_token: accessToken 
+        });
+        
+        // Set the auth tokens in our store
+        setAuthTokens(accessToken, refreshToken, expiresAt);
+        
+        // Set user from the response
+        if (response.data.user) {
+          setUser(response.data.user);
           toast.success('Logged in successfully!');
-          
-          // Redirect to dashboard
           navigate('/dashboard');
         } else {
-          // No session found
-          setError('No session found. Please try logging in again.');
+          setError('Failed to retrieve user information');
         }
       } catch (err) {
         console.error('Auth callback error:', err);
-        setError(err.message || 'Failed to complete authentication');
+        setError(err.response?.data?.message || 'Failed to complete authentication');
       }
     };
     
     handleAuthCallback();
   }, [navigate, setAuthTokens, setUser]);
   
+  // Rest of component remains the same
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6">
       {error ? (

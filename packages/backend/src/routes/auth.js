@@ -77,4 +77,28 @@ router.post('/refresh',
  */
 router.post('/logout', authController.logout);
 
+
+/**
+ * @route POST /api/auth/callback
+ * @desc Handle OAuth callback
+ * @access Public
+ */
+router.post('/callback', authController.handleAuthCallback);
+
+
+
+/**
+ * @route POST /api/auth/validate-session
+ * @desc Validate and create session from OAuth callback
+ * @access Public
+ */
+router.post('/validate-session', authController.validateSession);
+
+/**
+ * @route POST /api/auth/verify-tokens
+ * @desc Verify tokens and return user data
+ * @access Public
+ */
+router.post('/verify-tokens', authController.verifyTokens);
+
 module.exports = router;
