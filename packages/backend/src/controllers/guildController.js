@@ -543,18 +543,40 @@ exports.leaveGuild = async (req, res) => {
       }
     }
     
-    // Remove user from guild
-    const { error: leaveError } = await supabaseAdmin
+    // Remove user from guild - MODIFY THIS PART
+    const { data, error: leaveError, count } = await supabaseAdmin
       .from('guild_members')
       .delete()
       .eq('guild_id', guildId)
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .select();  // Add this to get the count of deleted rows
     
     if (leaveError) {
       return res.status(400).json({ 
         error: true, 
         message: leaveError.message 
       });
+    }
+    
+    // Check if deletion was actually successful
+    if (!data || data.length === 0) {
+      console.error('Guild member deletion returned success but no rows were affected.');
+      return res.status(400).json({ 
+        error: true, 
+        message: 'Failed to remove you from the guild. Please try again.' 
+      });
+    }
+    
+    // If the user joined through a social handle, update that record too
+    try {
+      await supabaseAdmin
+        .from('guild_invited_handles')
+        .update({ joined_at: null, joined_by: null })
+        .eq('guild_id', guildId)
+        .eq('joined_by', userId);
+    } catch (inviteError) {
+      console.error('Error updating invited handle record:', inviteError);
+      // Continue with the process even if this fails
     }
     
     res.status(200).json({
