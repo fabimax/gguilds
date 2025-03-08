@@ -543,13 +543,13 @@ exports.leaveGuild = async (req, res) => {
       }
     }
     
-    // Remove user from guild - MODIFY THIS PART
+    // Remove user from guild
     const { data, error: leaveError, count } = await supabaseAdmin
       .from('guild_members')
       .delete()
       .eq('guild_id', guildId)
       .eq('user_id', userId)
-      .select();  // Add this to get the count of deleted rows
+      .select();
     
     if (leaveError) {
       return res.status(400).json({ 
@@ -601,6 +601,8 @@ exports.changeMemberRole = async (req, res) => {
     const adminId = req.user.id;
     const { role } = req.body;
     
+    console.log(`Role change request - Guild: ${guildId}, Member: ${memberId}, New role: ${role}`);
+    
     // Validate role
     if (role !== 'admin' && role !== 'member') {
       return res.status(400).json({ 
@@ -627,7 +629,7 @@ exports.changeMemberRole = async (req, res) => {
     // Check if the target member exists
     const { data: targetMembership, error: targetMembershipError } = await supabaseAdmin
       .from('guild_members')
-      .select('*')
+      .select('role')
       .eq('guild_id', guildId)
       .eq('user_id', memberId)
       .single();
@@ -636,6 +638,20 @@ exports.changeMemberRole = async (req, res) => {
       return res.status(404).json({ 
         error: true, 
         message: 'Member not found in this guild' 
+      });
+    }
+    
+    console.log(`Current role of member: ${targetMembership.role}, Changing to: ${role}`);
+    
+    // If role is already set to the requested value, return success
+    if (targetMembership.role === role) {
+      console.log('Role is already set to the requested value, returning early');
+      return res.status(200).json({
+        message: `Member already has the role: ${role}`,
+        member: {
+          id: memberId,
+          role: role
+        }
       });
     }
     
@@ -655,24 +671,42 @@ exports.changeMemberRole = async (req, res) => {
       }
     }
     
-    // Update member role
-    const { data: updatedMember, error: updateError } = await supabaseAdmin
-      .from('guild_members')
-      .update({
-        role,
-        updated_at: new Date()
-      })
-      .eq('guild_id', guildId)
-      .eq('user_id', memberId)
-      .select()
-      .single();
+    // Try a more direct approach without setting updated_at (leave it to the trigger)
+    console.log('Executing role update in database...');
     
-    if (updateError) {
+    const updateResult = await supabaseAdmin
+      .from('guild_members')
+      .update({ role })
+      .eq('guild_id', guildId)
+      .eq('user_id', memberId);
+    
+    console.log('Update result:', updateResult);
+    
+    if (updateResult.error) {
+      console.error('Database update error:', updateResult.error);
       return res.status(400).json({ 
         error: true, 
-        message: updateError.message 
+        message: `Database error: ${updateResult.error.message}` 
       });
     }
+    
+    // Double-check the update worked by re-fetching
+    const { data: verifyUpdate, error: verifyError } = await supabaseAdmin
+      .from('guild_members')
+      .select('role')
+      .eq('guild_id', guildId)
+      .eq('user_id', memberId)
+      .single();
+    
+    if (verifyError) {
+      console.error('Error verifying update:', verifyError);
+      return res.status(500).json({ 
+        error: true, 
+        message: 'Error verifying role update' 
+      });
+    }
+    
+    console.log(`Verified new role: ${verifyUpdate.role}`);
     
     // Get the member's name
     const { data: member } = await supabaseAdmin
@@ -681,11 +715,14 @@ exports.changeMemberRole = async (req, res) => {
       .eq('id', memberId)
       .single();
     
+    // Create response with verification of the actual role
+    const memberName = member?.name || 'Member';
+    
     res.status(200).json({
-      message: `${member.name}'s role has been updated to ${role}`,
+      message: `${memberName}'s role has been updated to ${verifyUpdate.role}`,
       member: {
         id: memberId,
-        role: updatedMember.role
+        role: verifyUpdate.role
       }
     });
   } catch (err) {
