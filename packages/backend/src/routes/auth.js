@@ -56,6 +56,13 @@ router.post('/login',
 router.get('/twitter', authController.getTwitterAuthUrl);
 
 /**
+ * @route GET /api/auth/twitch
+ * @desc Get Twitch OAuth URL
+ * @access Public
+ */
+router.get('/twitch', authController.getTwitchAuthUrl);
+
+/**
  * @route POST /api/auth/refresh
  * @desc Refresh auth token
  * @access Public

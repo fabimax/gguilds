@@ -7,6 +7,7 @@ import { api } from '@/stores/authStore';
 
 const AuthCallback = () => {
   const [error, setError] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(true);
   const navigate = useNavigate();
   const { setAuthTokens, setUser } = useAuthStore();
   
@@ -20,9 +21,12 @@ const AuthCallback = () => {
         const refreshToken = hashParams.get('refresh_token');
         const expiresIn = hashParams.get('expires_in');
         
+        console.log('Processing auth callback, has token:', !!accessToken);
+        
         if (!accessToken) {
           console.error('No access token found in callback URL');
           setError('Authentication failed. No access token received.');
+          setIsProcessing(false);
           return;
         }
         
@@ -30,24 +34,49 @@ const AuthCallback = () => {
         const expiresAt = expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn) : null;
         
         // Verify tokens with our backend
+        console.log('Verifying tokens with backend...');
         const response = await api.post('/auth/verify-tokens', { 
           access_token: accessToken 
         });
+        
+        console.log('Token verification response:', response.status);
         
         // Set the auth tokens in our store
         setAuthTokens(accessToken, refreshToken, expiresAt);
         
         // Set user from the response
         if (response.data.user) {
+          console.log('Setting user data:', response.data.user);
           setUser(response.data.user);
           toast.success('Logged in successfully!');
-          navigate('/dashboard');
+          
+          // Redirect to dashboard or saved redirect URL
+          const redirectUrl = sessionStorage.getItem('redirectAfterAuth');
+          if (redirectUrl) {
+            sessionStorage.removeItem('redirectAfterAuth');
+            navigate(redirectUrl);
+          } else {
+            navigate('/dashboard');
+          }
         } else {
           setError('Failed to retrieve user information');
+          setIsProcessing(false);
         }
       } catch (err) {
         console.error('Auth callback error:', err);
-        setError(err.response?.data?.message || 'Failed to complete authentication');
+        
+        // Show detailed error for debugging
+        const errorMessage = err.response?.data?.message || 'Failed to complete authentication';
+        console.error('Error details:', errorMessage);
+        
+        setError(errorMessage);
+        setIsProcessing(false);
+        
+        // Show toast error but still attempt to navigate to login page after delay
+        toast.error(errorMessage);
+        setTimeout(() => {
+          navigate('/login');
+        }, 3000);
       }
     };
     
@@ -72,6 +101,7 @@ const AuthCallback = () => {
         <div className="text-center">
           <h2 className="text-2xl font-bold mb-4">Completing authentication...</h2>
           <div className="w-16 h-16 border-t-4 border-primary-600 border-solid rounded-full animate-spin mx-auto"></div>
+          {!isProcessing && <p className="mt-4">Redirecting you shortly...</p>}
         </div>
       )}
     </div>

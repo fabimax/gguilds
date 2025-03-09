@@ -124,6 +124,25 @@ const useAuthStore = create(
         }
       },
       
+      // Get Twitch auth URL
+      getTwitchAuthUrl: async (redirectTo) => {
+        set({ loading: true, error: null });
+        
+        try {
+          const response = await api.get(`/auth/twitch?redirectTo=${encodeURIComponent(redirectTo)}`);
+          set({ loading: false });
+          
+          return response.data.url;
+        } catch (error) {
+          console.error('Twitch auth URL error:', error);
+          set({
+            loading: false,
+            error: error.response?.data?.message || 'Failed to get Twitch auth URL',
+          });
+          throw error;
+        }
+      },
+      
       // Logout
       logout: async () => {
         if (get().token) {

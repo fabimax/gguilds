@@ -219,3 +219,6 @@ npm-debug.log*
 # Supabase local dev
 **/supabase/.branches/
 **/supabase/.temp/
+
+# LLM assistants
+for-llm-assistants/gitignored/

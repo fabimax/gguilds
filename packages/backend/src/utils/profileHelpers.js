@@ -34,6 +34,9 @@ exports.ensureUserProfile = async (user) => {
     const identity = user.identities[0];
     const identityData = identity.identity_data || {};
     
+    console.log('Identity provider:', identity.provider);
+    console.log('Identity data:', JSON.stringify(identityData, null, 2));
+    
     // Twitter-specific profile data
     if (identity.provider === 'twitter') {
       name = identityData.full_name || identityData.name || '';
@@ -53,8 +56,40 @@ exports.ensureUserProfile = async (user) => {
       }
     }
     
+    // Twitch-specific profile data
+    if (identity.provider === 'twitch') {
+      // Twitch returns different fields depending on scopes
+      // Common fields include: preferred_username, name, email, picture
+      name = identityData.preferred_username || 
+             identityData.nickname || 
+             identityData.name || 
+             identityData.display_name || '';
+             
+      // Fallback to the global name if no specific name is found
+      if (!name && user.user_metadata && user.user_metadata.full_name) {
+        name = user.user_metadata.full_name;
+      }
+      
+      // Twitch profile picture
+      if (identityData.picture || identityData.avatar_url) {
+        avatarUrl = identityData.picture || identityData.avatar_url;
+      }
+      
+      // Email from Twitch if available and not already set
+      if (!email && identityData.email) {
+        email = identityData.email;
+      }
+    }
+    
     // Add similar blocks for other providers if needed
   }
+  
+  console.log('Creating profile with:', {
+    id: user.id,
+    email,
+    name,
+    avatarUrl
+  });
   
   // Create profile record
   const { data: profile, error } = await supabaseAdmin

@@ -153,6 +153,44 @@ exports.getTwitterAuthUrl = async (req, res) => {
 };
 
 /**
+ * Get authentication URL for Twitch OAuth
+ */
+exports.getTwitchAuthUrl = async (req, res) => {
+  try {
+    // Get base URL for redirect
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const redirectTo = `${baseUrl}/auth/callback`;
+    
+    console.log('Generating Twitch auth with redirect to:', redirectTo);
+    
+    // Generate Twitch OAuth URL via Supabase
+    const { data, error } = await supabaseAdmin.auth.signInWithOAuth({
+      provider: 'twitch',
+      options: {
+        redirectTo
+      }
+    });
+    
+    if (error) {
+      return res.status(400).json({ 
+        error: true, 
+        message: error.message 
+      });
+    }
+    
+    res.status(200).json({
+      url: data.url
+    });
+  } catch (err) {
+    console.error('Twitch auth URL error:', err);
+    res.status(500).json({ 
+      error: true, 
+      message: 'Error generating Twitch auth URL' 
+    });
+  }
+};
+
+/**
  * Validate and refresh session token
  */
 exports.refreshToken = async (req, res) => {
@@ -363,6 +401,35 @@ exports.validateSession = async (req, res) => {
                 avatarUrl = identity.identity_data.avatar_url;
               }
             }
+            
+            // Check for Twitch identity
+            const twitchIdentity = userData.user.identities.find(id => id.provider === 'twitch');
+            if (twitchIdentity && twitchIdentity.identity_data) {
+              // Use Twitch data if Twitter data isn't available or if this is a Twitch login
+              if (!name || name === '') {
+                name = twitchIdentity.identity_data.preferred_username || 
+                       twitchIdentity.identity_data.nickname ||
+                       twitchIdentity.identity_data.display_name ||
+                       twitchIdentity.identity_data.name || '';
+                       
+                // Log the identity data to debug
+                console.log('Twitch identity data:', JSON.stringify(twitchIdentity.identity_data, null, 2));
+                
+                // Fallback to global metadata if identity data doesn't have name
+                if ((!name || name === '') && userData.user.user_metadata && userData.user.user_metadata.full_name) {
+                  name = userData.user.user_metadata.full_name;
+                }
+              }
+              
+              if (!avatarUrl) {
+                avatarUrl = twitchIdentity.identity_data.picture || 
+                            twitchIdentity.identity_data.avatar_url || '';
+              }
+              
+              if (!email && twitchIdentity.identity_data.email) {
+                email = twitchIdentity.identity_data.email;
+              }
+            }
           }
           
           console.log('Creating profile for user:', userData.user.id, name);
@@ -427,21 +494,36 @@ exports.verifyTokens = async (req, res) => {
     }
     
     // Ensure the user has a profile
-    await ensureUserProfile(data.user);
+    let profile;
+    try {
+      profile = await ensureUserProfile(data.user);
+      console.log('Profile after ensure:', profile);
+    } catch (profileError) {
+      console.error('Error ensuring user profile:', profileError);
+      // Continue even if profile creation fails
+    }
     
-    // Get the profile data
-    const { data: profile } = await supabaseAdmin
+    // Get the latest profile data (in case ensureUserProfile just created it)
+    const { data: latestProfile, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('*')
       .eq('id', data.user.id)
       .single();
     
+    if (profileError) {
+      console.error('Error getting profile:', profileError);
+    }
+    
+    const userResponse = {
+      id: data.user.id,
+      email: data.user.email,
+      name: latestProfile?.name || data.user.user_metadata?.full_name || data.user.user_metadata?.name || ''
+    };
+    
+    console.log('Returning user data:', userResponse);
+    
     res.status(200).json({
-      user: {
-        id: data.user.id,
-        email: data.user.email,
-        name: profile?.name || ''
-      }
+      user: userResponse
     });
   } catch (err) {
     console.error('Token verification error:', err);
