@@ -9,7 +9,7 @@ import { api } from '@/stores/authStore';
 import toast from 'react-hot-toast';
 
 const ProfilePage = () => {
-  const { user, setUser } = useAuthStore();
+  const { user, token, setUser } = useAuthStore();
   const navigate = useNavigate();
   
   const [loading, setLoading] = useState(true);
@@ -21,8 +21,22 @@ const ProfilePage = () => {
   const [bio, setBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   
+  // Fix for ensuring the auth token is in headers
+  useEffect(() => {
+    // Only run this once to set the header if needed
+    if (token && !api.defaults.headers.common['Authorization']) {
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+  }, [token]);
+  
+  // Separate effect for fetching profile to avoid dependency cycles
   useEffect(() => {
     const fetchUserProfile = async () => {
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+      
       try {
         setLoading(true);
         const response = await api.get('/users/me');
@@ -36,13 +50,18 @@ const ProfilePage = () => {
       } catch (error) {
         console.error('Failed to fetch user profile:', error);
         toast.error('Failed to load profile data');
+        
+        // If unauthorized, redirect to login
+        if (error.response?.status === 401) {
+          navigate('/login');
+        }
       } finally {
         setLoading(false);
       }
     };
     
     fetchUserProfile();
-  }, []);
+  }, [token, navigate]); // Minimal dependencies to prevent loops
   
   const handleSubmit = async (e) => {
     e.preventDefault();
